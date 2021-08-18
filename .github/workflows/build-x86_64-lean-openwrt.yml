@@ -25,6 +25,7 @@ env:
   IPV6MOD_IN_FIRMWARE: true
   KMODS_IN_FIRMWARE: false
   UPLOAD_WETRANSFER: true
+  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -214,13 +215,32 @@ jobs:
           df -hT $PWD
           echo "::set-output name=ORGANIZE_STATUS::success"
 
-      - name: Upload Firmware To WeTransfer
-        id: wetransfer
+      - name: Upload Uefi Firmwares To WeTransfer
+        id: wetransfer-uefi
         if: steps.organize.outputs.ORGANIZE_STATUS == 'success' && env.UPLOAD_WETRANSFER == 'true'
         run: |
-          transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
-          echo "::warning file=Firmware-Wetransfer.com::$(cat wetransfer.log | grep https)"
-          echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"
+          cd $FIRMWARE
+          transfer wet -s -p 16 --no-progress $OPENWRTROOT/output/uefi-images 2>&1 | tee wetransfer-uefi.log
+          echo "::warning file=Wetransfer-UEFI=::$(cat wetransfer-uefi.log | grep https)"
+          echo "::set-output name=url::$(cat wetransfer-uefi.log | grep https | cut -f3 -d" ")"    
+
+      - name: Upload Legacy Firmwares To WeTransfer
+        id: wetransfer-legacy
+        if: steps.organize.outputs.ORGANIZE_STATUS == 'success' && env.UPLOAD_WETRANSFER == 'true'
+        run: |
+          cd $FIRMWARE
+          transfer wet -s -p 16 --no-progress $OPENWRTROOT/output/legacy-images 2>&1 | tee wetransfer-legacy.log
+          echo "::warning file=Wetransfer-Legacy::$(cat wetransfer-legacy.log | grep https)"
+          echo "::set-output name=url::$(cat wetransfer-legacy.log | grep https | cut -f3 -d" ")"              
+
+      - name: Upload Other Files To WeTransfer
+        id: wetransfer-other
+        if: steps.organize.outputs.ORGANIZE_STATUS == 'success' && env.UPLOAD_WETRANSFER == 'true'
+        run: |
+          cd $FIRMWARE
+          transfer wet -s -p 16 --no-progress $OPENWRTROOT/output/other-files 2>&1 | tee wetransfer-other.log
+          echo "::warning file=Wetransfer-OtherFiles::$(cat wetransfer-other.log | grep https)"
+          echo "::set-output name=url::$(cat wetransfer-other.log | grep https | cut -f3 -d" ")"              
 
       - name: Generate release tag
         id: tag
@@ -228,7 +248,9 @@ jobs:
         run: |
           echo "::set-output name=release_tag::$(date +"%Y.%m.%d-%H%M")"
           touch release.txt
-          [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer](${{ steps.wetransfer.outputs.url }})" >> release.txt
+          [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer-UEFI](${{ steps.wetransfer-uefi.outputs.url }})" >> release.txt
+          [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer-Legacy](${{ steps.wetransfer-legacy.outputs.url }})" >> release.txt
+          [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer-Other](${{ steps.wetransfer-other.outputs.url }})" >> release.txt
           echo "::set-output name=status::success"
           
       - name: Upload firmware to release
@@ -240,6 +262,12 @@ jobs:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
           files: ${{ env.FIRMWARE }}/*
+
+      - name: Delete Artifacts
+        uses: geekyeggo/delete-artifact@v1
+        with:
+          name: |
+            bin-archive
 
       - name: Delete workflow runs
         uses: GitRML/delete-workflow-runs@main
